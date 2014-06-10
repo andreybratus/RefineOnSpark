@@ -1,6 +1,8 @@
-package eu.spaziodati.batchrefine.spark;
+package eu.spaziodati.batchrefine.spark.utils;
+
 import java.io.Closeable;
 import java.io.IOException;
+
 
 public class Utils {
 
@@ -32,4 +34,6 @@ public class Utils {
 			}
 		}
 	}
+
+	
 }

@@ -1,0 +1,9 @@
+Manifest-Version: 1.0
+Built-By: andrey
+Build-Jdk: 1.7.0_55
+Class-Path: lib/httpclient-4.3.3.jar lib/httpcore-4.3.2.jar lib/common
+ s-logging-1.1.3.jar lib/commons-codec-1.6.jar lib/json-20140107.jar l
+ ib/httpmime-4.3.3.jar lib/commons-io-2.4.jar lib/spark-assembly-1.0.0-hadoop1.0.4.jar
+Created-By: Apache Maven 3.0.5
+Main-Class: eu.spaziodati.batchrefine.spark.RefineOnSpark
+Archiver-Version: Plexus Archiver
