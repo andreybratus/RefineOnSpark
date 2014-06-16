@@ -1,8 +1,6 @@
 package eu.spaziodati.batchrefine.spark.http;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.ConnectException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -24,7 +22,7 @@ import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.client.utils.URLEncodedUtils;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
-import org.apache.http.entity.mime.content.FileBody;
+import org.apache.http.entity.mime.content.ContentBody;
 import org.apache.http.entity.mime.content.StringBody;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
@@ -35,17 +33,18 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import eu.spaziodati.batchrefine.spark.Utils;
+import eu.spaziodati.batchrefine.spark.utils.FakeFileBody;
+import eu.spaziodati.batchrefine.spark.utils.Utils;
 
 /**
- * {@link RefineHTTPClient} is a wrapper to the OpenRefine HTTP API that
- * implements {@link ITransformEngine}.
+ * {@link SparkRefineHTTPClient} is a wrapper to the RefineOnSpark client,
+ * modified to conform with the Refine Driver Program {@link RefineOnSpark}
  * 
  */
-public class RefineHTTPClient  {
+public class SparkRefineHTTPClient {
 
 	private static final Logger fLogger = LoggerFactory
-			.getLogger(RefineHTTPClient.class.getSimpleName());
+			.getLogger(SparkRefineHTTPClient.class.getSimpleName());
 
 	/**
 	 * Poll intervals for asynchronous operations should start at
@@ -80,31 +79,34 @@ public class RefineHTTPClient  {
 	 * @throws URISyntaxException
 	 *             if the host name contains illegal syntax.
 	 */
-	public RefineHTTPClient(String host, int port) throws URISyntaxException {
+	public SparkRefineHTTPClient(String host, int port)
+			throws URISyntaxException {
 		fRefineURI = new URI("http", null, host, port, null, null, null);
 		fHttpClient = HttpClients.createDefault();
 	}
 
-	
-	public void transform(File original, JSONArray transform,
-			OutputStream transformed, Properties exporterOptions)
-			throws IOException, JSONException {
+	public List<String> transform(FakeFileBody chunk, JSONArray transform,
+			Properties exporterOptions) throws IOException,
+			JSONException {
 		String handle = null;
-
+		List<String> transformed;
 		try {
-			handle = createProjectAndUpload(original);
+
+			handle = createProjectAndUpload(chunk);
 
 			if (applyOperations(handle, transform)) {
 				join(handle);
 			}
 
-			outputResults(handle, transformed, exporterOptions);
+			transformed = outputResults(handle, exporterOptions);
 		} finally {
 			deleteProject(handle);
 		}
+		return transformed;
 	}
 
-	private String createProjectAndUpload(File original) throws IOException {
+	private String createProjectAndUpload(ContentBody original)
+			throws IOException {
 		CloseableHttpResponse response = null;
 
 		try {
@@ -117,7 +119,7 @@ public class RefineHTTPClient  {
 
 			HttpEntity entity = MultipartEntityBuilder
 					.create()
-					.addPart("project-file", new FileBody(original))
+					.addPart("project-file", original)
 					.addPart("project-name",
 							new StringBody(name, ContentType.TEXT_PLAIN))
 					.build();
@@ -182,10 +184,10 @@ public class RefineHTTPClient  {
 		}
 	}
 
-	private void outputResults(String handle, OutputStream transformed,
-			Properties exporterOptions) throws IOException {
+	private List<String> outputResults(String handle, Properties exporterOptions)
+			throws IOException {
 		CloseableHttpResponse response = null;
-
+		List<String> transformed = null;
 		try {
 			String format = checkedGet(exporterOptions, "format");
 
@@ -197,13 +199,16 @@ public class RefineHTTPClient  {
 			response = doPost("/command/core/export-rows/" + handle + "."
 					+ format, new UrlEncodedFormEntity(pairs));
 
-			response.getEntity().writeTo(transformed);
+			transformed = IOUtils.readLines(response.getEntity().getContent(),
+					"UTF-8");
 
 		} catch (Exception e) {
 			throw launderedException(e);
 		} finally {
 			Utils.safeClose(response, false);
 		}
+		return transformed;
+
 	}
 
 	private String checkedGet(Properties p, String key) {
@@ -324,7 +329,6 @@ public class RefineHTTPClient  {
 		return response;
 	}
 
-	
 	public void close() throws IOException {
 		fHttpClient.close();
 	}
