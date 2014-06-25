@@ -33,7 +33,6 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import eu.spaziodati.batchrefine.spark.utils.FakeFileBody;
 import eu.spaziodati.batchrefine.spark.utils.Utils;
 
 /**
@@ -85,14 +84,17 @@ public class SparkRefineHTTPClient {
 		fHttpClient = HttpClients.createDefault();
 	}
 
-	public List<String> transform(FakeFileBody chunk, JSONArray transform,
-			Properties exporterOptions) throws IOException,
-			JSONException {
+	public List<String> transform(ContentBody chunk, JSONArray transform,
+			Properties exporterOptions) throws IOException, JSONException {
 		String handle = null;
 		List<String> transformed;
 		try {
 
+			long startTime = System.nanoTime();
+
 			handle = createProjectAndUpload(chunk);
+			System.out.println("Upload project: "
+					+ (System.nanoTime() - startTime) / 1000000000.0);
 
 			if (applyOperations(handle, transform)) {
 				join(handle);

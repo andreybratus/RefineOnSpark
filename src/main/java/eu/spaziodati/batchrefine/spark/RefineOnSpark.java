@@ -1,10 +1,16 @@
 package eu.spaziodati.batchrefine.spark;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.InputStreamReader;
+import java.io.ObjectOutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.rmi.server.UnicastRemoteObject;
+import java.util.List;
 
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -16,7 +22,7 @@ import eu.spaziodati.batchrefine.spark.http.SparkRefineHTTPClient;
 import eu.spaziodati.batchrefine.spark.utils.DriverOptions;
 import eu.spaziodati.batchrefine.spark.utils.JobOptions;
 
-public class RefineOnSpark {
+public class RefineOnSpark implements RemoteInterface {
 
 	private static JavaSparkContext sparkContext;
 
@@ -35,8 +41,12 @@ public class RefineOnSpark {
 	 * @author andrey
 	 */
 
-	public static void main(String[] args) {
+	public RefineOnSpark() {
+	};
 
+	public static void main(String[] args) {
+		ServerSocket stubServer = null;
+		ObjectOutputStream objStream = null;
 		DriverOptions options = new DriverOptions();
 
 		CmdLineParser parser = new CmdLineParser(options);
@@ -48,13 +58,18 @@ public class RefineOnSpark {
 				System.exit(-1);
 			}
 
+			String currentWorkDir = System.getProperty("user.dir");
+			System.out.println(currentWorkDir);
+			
 			SparkConf sparkConfiguration = new SparkConf(true)
 					.setMaster(options.getArguments().get(0))
 					.setAppName(options.getAppName())
 					.set("spark.executor.memory", options.getExecutorMemory())
 					.set("spark.executor.extraClassPath",
-							"/shared/home-05/mega/RefineOnSpark/RefineOnSpark-0.1.jar:/shared/home-05/mega/RefineOnSpark/lib/*");
+							currentWorkDir + "/RefineOnSpark-0.1.jar:"
+									+ currentWorkDir + "/lib/*");
 
+			System.out.println(sparkConfiguration.get("spark.executor.extraClassPath"));
 			sparkContext = new JavaSparkContext(sparkConfiguration);
 
 			System.out
@@ -62,16 +77,30 @@ public class RefineOnSpark {
 							+ args[0]);
 
 			while (true) {
+				try {
+					stubServer = new ServerSocket(3377);
 
-				System.out.print("> ");
+					RefineOnSpark obj = new RefineOnSpark();
 
-				String[] arguments = new BufferedReader(new InputStreamReader(
-						System.in)).readLine().trim().split("\\s+");
+					RemoteInterface stub = (RemoteInterface) UnicastRemoteObject
+							.exportObject(obj, 0);
 
-				if (!arguments[0].equals("exit"))
-					new RefineOnSpark().doMain(arguments);
-				else
-					return;
+					Socket connection = stubServer.accept();
+					objStream = new ObjectOutputStream(
+							connection.getOutputStream());
+
+					objStream.writeObject(stub);
+					objStream.close();
+
+					System.err.println("Connection accepted! From: "
+							+ connection.getRemoteSocketAddress().toString());
+				} catch (Exception e) {
+					System.err.println("Failed accepting request: "
+							+ e.toString());
+					e.printStackTrace();
+				} finally {
+					IOUtils.closeQuietly(stubServer);
+				}
 			}
 
 		} catch (CmdLineException e) {
@@ -85,9 +114,10 @@ public class RefineOnSpark {
 		}
 	}
 
-	private void doMain(String jobArguments[]) {
+	public double doMain(String[] jobArguments) throws Exception {
 		JobOptions options = new JobOptions();
 		CmdLineParser parser = new CmdLineParser(options);
+		long startTime = System.nanoTime();
 
 		try {
 			parser.parseArgument(jobArguments);
@@ -116,20 +146,29 @@ public class RefineOnSpark {
 			lines = lines.mapPartitions(new JobFunction(header, transformFile
 					.getName()));
 
-			
-			lines.saveAsTextFile(inputFile.getName());
-			
+			List<String> result = lines.collect();
+
+			FileUtils.writeLines(
+					new File(FilenameUtils.removeExtension(inputFile.getName())
+							+ "_out.csv"), result);
 
 		} catch (CmdLineException e) {
 			printUsageJob(parser);
+			throw e;
 		} catch (Exception e) {
 			System.err.println("Caught Exception, cause: " + e.getMessage());
 			printUsage(parser);
+			throw e;
+		} finally {
+			sparkContext.cancelAllJobs();
 		}
+
+		return (System.nanoTime() - startTime) / 1000000000.0;
 	}
 
 	private static void printUsage(CmdLineParser parser) {
-		System.err.println("Usage: refineonspark [OPTION...] SPARK://MASTER:PORT\n");
+		System.err
+				.println("Usage: refineonspark [OPTION...] SPARK://MASTER:PORT\n");
 		parser.printUsage(System.err);
 	}
 

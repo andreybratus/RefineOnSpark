@@ -7,14 +7,13 @@ import java.util.List;
 import java.util.Properties;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.http.entity.ContentType;
 import org.apache.spark.SparkFiles;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.broadcast.Broadcast;
 import org.json.JSONArray;
 
 import eu.spaziodati.batchrefine.spark.http.SparkRefineHTTPClient;
-import eu.spaziodati.batchrefine.spark.utils.FakeFileBody;
+import eu.spaziodati.batchrefine.spark.utils.RDDContentBody;
 
 public class JobFunction implements FlatMapFunction<Iterator<String>, String>,
 		Serializable {
@@ -28,7 +27,7 @@ public class JobFunction implements FlatMapFunction<Iterator<String>, String>,
 	};
 
 	@Override
-	public List<String> call(Iterator<String> original) throws Exception {
+	public List<String> call(Iterator<String> originalRDD) throws Exception {
 		List<String> transformed = null;
 
 		Properties exporterProperties = new Properties();
@@ -41,30 +40,11 @@ public class JobFunction implements FlatMapFunction<Iterator<String>, String>,
 		SparkRefineHTTPClient client = new SparkRefineHTTPClient("localhost",
 				3333);
 
-		StringBuilder sb = new StringBuilder();
-
-		if (original.hasNext()) {
-			String firstLine = original.next();
-
-			if (firstLine.equals(header.getValue())) {
-				sb.append(firstLine);
-				sb.append("\n");
-			} else {
-				sb.append(header.getValue());
-				sb.append("\n");
-				sb.append(firstLine);
-				sb.append("\n");
-			}
-		}
-
-		while (original.hasNext()) {
-			sb.append(original.next());
-			sb.append("\n");
-		}
-
-		transformed = client.transform(new FakeFileBody(sb.toString(),
-				ContentType.MULTIPART_FORM_DATA, header.getValue()),
+		transformed = client.transform(
+				new RDDContentBody(originalRDD, header.getValue()),
 				transformArray, exporterProperties);
+
+		transformed.remove(0);
 
 		return transformed;
 
