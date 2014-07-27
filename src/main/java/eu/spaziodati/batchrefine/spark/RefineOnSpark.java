@@ -1,99 +1,104 @@
 package eu.spaziodati.batchrefine.spark;
 
 import java.io.File;
-import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.List;
+import java.util.Properties;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.spark.Accumulator;
 import org.apache.spark.SparkConf;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.*;
 import org.apache.spark.broadcast.Broadcast;
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 
 import eu.spaziodati.batchrefine.spark.http.SparkRefineHTTPClient;
-import eu.spaziodati.batchrefine.spark.utils.DriverOptions;
-import eu.spaziodati.batchrefine.spark.utils.JobOptions;
+import eu.spaziodati.batchrefine.spark.utils.DriverCLIOptions;
+import eu.spaziodati.batchrefine.spark.utils.StringAccumulatorParam;
 
-public class RefineOnSpark implements RemoteInterface {
+/**
+ * This is a simple Spark Driver CLI program, aimed to connect to the Spark
+ * Cluster, with specified options in the {@link DriverOptions}. After
+ * connecting to the master cluster, brings to the CLI, where you can issue
+ * requests for transforming data using options {@link JobOptions}
+ * 
+ * Each worker node submits the transform job to locally running OpenRefine
+ * Instance, using {@link SparkRefineHTTPClient}
+ * 
+ * INPUTFILE is supposed to be present on all worker nodes under the same
+ * location. TRANSFORMFILE will be shipped to workers using HTTP fileserver.
+ * 
+ * @author andrey
+ */
+
+public class RefineOnSpark implements RemoteInterface, ITransformEngine {
 
 	private static JavaSparkContext sparkContext;
-
-	/**
-	 * This is a simple Spark Driver CLI program, aimed to connect to the Spark
-	 * Cluster, with specified options in the {@link DriverOptions}. After
-	 * connecting to the master cluster, brings to the CLI, where you can issue
-	 * requests for transforming data using options {@link JobOptions}
-	 * 
-	 * Each worker node submits the transform job to locally running OpenRefine
-	 * Instance, using {@link SparkRefineHTTPClient}
-	 * 
-	 * INPUTFILE is supposed to be present on all worker nodes under the same
-	 * location. TRANSFORMFILE will be shipped to workers using HTTP fileserver.
-	 * 
-	 * @author andrey
-	 */
+	public static RemoteInterface stub;
+	private static RefineOnSpark obj;
 
 	public RefineOnSpark() {
 	};
 
+	/**
+	 * Server main function:<br>
+	 * - initializes the {@link JavaSparkContext}<br>
+	 * - connect to the master node specified in args[0],<br>
+	 * - listens for socket connection from a client at port {@code 3377}
+	 * 
+	 * @param args
+	 */
+
 	public static void main(String[] args) {
 		ServerSocket stubServer = null;
 		ObjectOutputStream objStream = null;
-		DriverOptions options = new DriverOptions();
+		DriverCLIOptions cLineOptions = new DriverCLIOptions();
 
-		CmdLineParser parser = new CmdLineParser(options);
+		CmdLineParser parser = new CmdLineParser(cLineOptions);
+
 		try {
 			parser.parseArgument(args);
 
-			if (options.getArguments().size() < 1) {
+			if (cLineOptions.getArguments().size() < 1) {
 				printUsage(parser);
 				System.exit(-1);
 			}
 
-			String currentWorkDir = System.getProperty("user.dir");
-			System.out.println(currentWorkDir);
-			
-			SparkConf sparkConfiguration = new SparkConf(true)
-					.setMaster(options.getArguments().get(0))
-					.setAppName(options.getAppName())
-					.set("spark.executor.memory", options.getExecutorMemory())
-					.set("spark.executor.extraClassPath",
-							currentWorkDir + "/RefineOnSpark-0.1.jar:"
-									+ currentWorkDir + "/lib/*");
-
-			System.out.println(sparkConfiguration.get("spark.executor.extraClassPath"));
-			sparkContext = new JavaSparkContext(sparkConfiguration);
+			sparkContext = new JavaSparkContext(configureSpark(cLineOptions));
 
 			System.out
 					.println("SparkContext initialized, connected to master: "
 							+ args[0]);
+			System.out.println("Waiting for connections");
+
+			obj = new RefineOnSpark();
+			stub = (RemoteInterface) UnicastRemoteObject.exportObject(obj, 0);
 
 			while (true) {
 				try {
 					stubServer = new ServerSocket(3377);
 
-					RefineOnSpark obj = new RefineOnSpark();
-
-					RemoteInterface stub = (RemoteInterface) UnicastRemoteObject
-							.exportObject(obj, 0);
-
 					Socket connection = stubServer.accept();
+
+					System.err.println("Connection accepted! From: "
+							+ connection.getRemoteSocketAddress().toString()
+							+ " Sending stub!");
+
 					objStream = new ObjectOutputStream(
 							connection.getOutputStream());
 
 					objStream.writeObject(stub);
 					objStream.close();
 
-					System.err.println("Connection accepted! From: "
-							+ connection.getRemoteSocketAddress().toString());
 				} catch (Exception e) {
 					System.err.println("Failed accepting request: "
 							+ e.toString());
@@ -114,76 +119,113 @@ public class RefineOnSpark implements RemoteInterface {
 		}
 	}
 
-	public double doMain(String[] jobArguments) throws Exception {
-		JobOptions options = new JobOptions();
-		CmdLineParser parser = new CmdLineParser(options);
+	/**
+	 * Function called using RMI through {@link RemoteInterface} which submits a
+	 * job to {@code sparkContext} and returns the processing time
+	 * 
+	 * @return processing time
+	 */
+
+	public String submitJob(String[] options) throws Exception {
+
 		long startTime = System.nanoTime();
-
+		long transFormTime;
+		Accumulator<String> accum;
 		try {
-			parser.parseArgument(jobArguments);
-
-			if (options.fArguments.size() < 2) {
-				throw new CmdLineException(parser,
-						"Two arguments are required!");
-			}
-
-			File inputFile = checkExists(options.fArguments.get(0));
-			File transformFile = checkExists(options.fArguments.get(1));
-
-			sparkContext.addFile(transformFile.getAbsoluteFile().toString());
 
 			JavaRDD<String> lines;
 
-			if (options.numPartitions == null)
-				lines = sparkContext.textFile(inputFile.getAbsoluteFile()
-						.toString());
+			// if option number of partitions is not set, Spark will
+			// automatically partition the file by trying to fill the block
+			// size
+			if (options[3].equals("0"))
+				lines = sparkContext.textFile(options[0]);
 			else
-				lines = sparkContext.textFile(inputFile.getAbsoluteFile()
-						.toString(), options.numPartitions);
+				lines = sparkContext.textFile(options[0],
+						Integer.parseInt(options[3]));
+			//
+			// lines = sparkContext.hadoopFile(options[0],
+			// TextInputFormat.class,
+			// LongWritable.class, Text.class,
+			// Integer.parseInt(options[3])).map(new mapFunction());
+			//
+			// JobConf conf = new JobConf();
+			//
+			// TextInputFormat.setInputPaths(conf, options[0]);
 
+			// if (options[3].equals("0"))
+			// lines = sparkContext.hadoopRDD(conf, TextInputFormat.class,
+			// LongWritable.class, Text.class).map(new mapFunction());
+			// else
+			// lines = sparkContext.hadoopRDD(conf, TextInputFormat.class,
+			// LongWritable.class, Text.class,
+			// Integer.parseInt(options[3])).map(new mapFunction());
+
+			// broadcast header so that all worker nodes can read it.
 			Broadcast<String> header = sparkContext.broadcast(lines.first());
 
-			lines = lines.mapPartitions(new JobFunction(header, transformFile
-					.getName()));
+			// each worker appends processing time to this accumulator<String>
+			accum = sparkContext.accumulator(new String(),
+					new StringAccumulatorParam());
 
-			List<String> result = lines.collect();
+			// assign job to each partition.
+			lines = lines.mapPartitions(new JobFunction(header, options[1],
+					accum));
 
-			FileUtils.writeLines(
-					new File(FilenameUtils.removeExtension(inputFile.getName())
-							+ "_out.csv"), result);
+			lines.saveAsTextFile(options[2]);
 
-		} catch (CmdLineException e) {
-			printUsageJob(parser);
-			throw e;
+			transFormTime = System.nanoTime() - startTime;
+
 		} catch (Exception e) {
 			System.err.println("Caught Exception, cause: " + e.getMessage());
-			printUsage(parser);
-			throw e;
+			throw new RemoteException(e.getMessage());
 		} finally {
 			sparkContext.cancelAllJobs();
 		}
 
-		return (System.nanoTime() - startTime) / 1000000000.0;
+		return String.format("%18s\t%2.3f%s",
+				FilenameUtils.getName(options[0]),
+				transFormTime / 1000000000.0, accum.value());
 	}
 
+	private static SparkConf configureSpark(DriverCLIOptions cLineOptions) {
+
+		String currentWorkDir = System.getProperty("user.dir");
+
+		SparkConf sparkConfiguration = new SparkConf(true)
+				.setMaster(cLineOptions.getArguments().get(0))
+				.setAppName(cLineOptions.getAppName())
+				.set("spark.executor.memory", cLineOptions.getExecutorMemory())
+				.set("spark.executor.extraClassPath",
+						currentWorkDir + "/RefineOnSpark-0.1.jar:"
+								+ currentWorkDir + "/lib/*")
+				.set("spark.hadoop.fs.local.block.size",
+						cLineOptions.getFsBlockSize().toString());
+
+		return sparkConfiguration;
+	}
+
+	/**
+	 * Print usage for the main() spark driver app initialization function
+	 * 
+	 * @param parser
+	 */
 	private static void printUsage(CmdLineParser parser) {
 		System.err
 				.println("Usage: refineonspark [OPTION...] SPARK://MASTER:PORT\n");
 		parser.printUsage(System.err);
 	}
 
-	private static void printUsageJob(CmdLineParser parser) {
-		System.err.println("Usage: [OPTION...] INPUTFILE TRANSFORM\n");
-		parser.printUsage(System.err);
+	public void close() throws IOException {
+		// TODO Auto-generated method stub
+
 	}
 
-	private File checkExists(String name) throws FileNotFoundException {
-		File file = new File(name);
-		if (!file.exists()) {
-			throw new FileNotFoundException("File " + name
-					+ " could not be found.");
-		}
-		return file;
+	public void transform(File original, JSONArray transform,
+			OutputStream transformed, Properties exporterOptions)
+			throws IOException, JSONException {
+		// TODO Auto-generated method stub
+
 	}
 
 }

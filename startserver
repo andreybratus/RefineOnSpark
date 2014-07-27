@@ -1,0 +1,3 @@
+#!/bin/bash
+
+java -server -Dspark.speculation=true -Xms1g -Xmx1g -jar RefineOnSpark-0.1.jar "$@"

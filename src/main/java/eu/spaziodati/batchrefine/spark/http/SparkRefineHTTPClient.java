@@ -89,17 +89,11 @@ public class SparkRefineHTTPClient {
 		String handle = null;
 		List<String> transformed;
 		try {
-
-			long startTime = System.nanoTime();
-
 			handle = createProjectAndUpload(chunk);
-			System.out.println("Upload project: "
-					+ (System.nanoTime() - startTime) / 1000000000.0);
 
 			if (applyOperations(handle, transform)) {
 				join(handle);
 			}
-
 			transformed = outputResults(handle, exporterOptions);
 		} finally {
 			deleteProject(handle);

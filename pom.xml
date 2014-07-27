@@ -12,7 +12,8 @@
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<jdk.version>1.5</jdk.version>
+		<jdk.version>1.7</jdk.version>
+		<hadoop.version>1.2.1</hadoop.version>
 	</properties>
 
 	<dependencies>
@@ -94,7 +95,14 @@
 				<version>2.4</version>
 				<configuration>
 					<archive>
-						<manifestFile>MANIFEST.MF</manifestFile>
+						<manifest>
+							<addClasspath>true</addClasspath>
+							<classpathPrefix>lib/</classpathPrefix>
+							<mainClass>eu.spaziodati.batchrefine.spark.RefineOnSpark</mainClass>
+						</manifest>
+						<manifestEntries>
+							<Class-Path>lib/spark-assembly-1.0.0-hadoop${hadoop.version}.jar</Class-Path>
+						</manifestEntries>
 					</archive>
 				</configuration>
 			</plugin>
