@@ -5,7 +5,7 @@ import java.rmi.RemoteException;
 
 /**
  * RMI interface used to communicate with <i>RefineOnSpark</i> by submitting job
- * parameters in {@code String} array
+ * parameters in {@code String[]} array
  * 
  * @author andrey
  */

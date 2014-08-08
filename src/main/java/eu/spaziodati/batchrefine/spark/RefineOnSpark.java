@@ -1,46 +1,33 @@
 package eu.spaziodati.batchrefine.spark;
 
-import java.io.File;
-import java.io.IOException;
 import java.io.ObjectOutputStream;
-import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.Properties;
 
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.IOUtils;
 import org.apache.spark.Accumulator;
 import org.apache.spark.SparkConf;
-import org.apache.spark.api.java.*;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.broadcast.Broadcast;
-import org.json.JSONArray;
-import org.json.JSONException;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 
-import eu.spaziodati.batchrefine.spark.http.SparkRefineHTTPClient;
 import eu.spaziodati.batchrefine.spark.utils.DriverCLIOptions;
 import eu.spaziodati.batchrefine.spark.utils.StringAccumulatorParam;
 
 /**
  * This is a simple Spark Driver CLI program, aimed to connect to the Spark
- * Cluster, with specified options in the {@link DriverOptions}. After
- * connecting to the master cluster, brings to the CLI, where you can issue
- * requests for transforming data using options {@link JobOptions}
- * 
- * Each worker node submits the transform job to locally running OpenRefine
- * Instance, using {@link SparkRefineHTTPClient}
- * 
- * INPUTFILE is supposed to be present on all worker nodes under the same
- * location. TRANSFORMFILE will be shipped to workers using HTTP fileserver.
+ * cluster, with specified options in the {@link DriverOptions}. After
+ * connecting to the master, block and waits for a connection
  * 
  * @author andrey
  */
 
-public class RefineOnSpark implements RemoteInterface, ITransformEngine {
+public class RefineOnSpark implements RemoteInterface {
 
 	private static JavaSparkContext sparkContext;
 	public static RemoteInterface stub;
@@ -143,21 +130,9 @@ public class RefineOnSpark implements RemoteInterface, ITransformEngine {
 			else
 				lines = sparkContext.textFile(options[0],
 						Integer.parseInt(options[3]));
-			//
+
 			// lines = sparkContext.hadoopFile(options[0],
 			// TextInputFormat.class,
-			// LongWritable.class, Text.class,
-			// Integer.parseInt(options[3])).map(new mapFunction());
-			//
-			// JobConf conf = new JobConf();
-			//
-			// TextInputFormat.setInputPaths(conf, options[0]);
-
-			// if (options[3].equals("0"))
-			// lines = sparkContext.hadoopRDD(conf, TextInputFormat.class,
-			// LongWritable.class, Text.class).map(new mapFunction());
-			// else
-			// lines = sparkContext.hadoopRDD(conf, TextInputFormat.class,
 			// LongWritable.class, Text.class,
 			// Integer.parseInt(options[3])).map(new mapFunction());
 
@@ -201,7 +176,6 @@ public class RefineOnSpark implements RemoteInterface, ITransformEngine {
 								+ currentWorkDir + "/lib/*")
 				.set("spark.hadoop.fs.local.block.size",
 						cLineOptions.getFsBlockSize().toString());
-
 		return sparkConfiguration;
 	}
 
@@ -214,18 +188,6 @@ public class RefineOnSpark implements RemoteInterface, ITransformEngine {
 		System.err
 				.println("Usage: refineonspark [OPTION...] SPARK://MASTER:PORT\n");
 		parser.printUsage(System.err);
-	}
-
-	public void close() throws IOException {
-		// TODO Auto-generated method stub
-
-	}
-
-	public void transform(File original, JSONArray transform,
-			OutputStream transformed, Properties exporterOptions)
-			throws IOException, JSONException {
-		// TODO Auto-generated method stub
-
 	}
 
 }

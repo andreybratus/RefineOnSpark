@@ -14,6 +14,7 @@
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<jdk.version>1.7</jdk.version>
 		<hadoop.version>1.2.1</hadoop.version>
+		<spark.version>1.0.2</spark.version>
 	</properties>
 
 	<dependencies>
@@ -26,8 +27,12 @@
 		<dependency>
 			<groupId>org.apache.spark</groupId>
 			<artifactId>spark-core_2.10</artifactId>
-			<version>1.0.0</version>
-			<scope>provided</scope>
+			<version>${spark.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-client</artifactId>
+			<version>${hadoop.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.httpcomponents</groupId>
@@ -100,9 +105,6 @@
 							<classpathPrefix>lib/</classpathPrefix>
 							<mainClass>eu.spaziodati.batchrefine.spark.RefineOnSpark</mainClass>
 						</manifest>
-						<manifestEntries>
-							<Class-Path>lib/spark-assembly-1.0.0-hadoop${hadoop.version}.jar</Class-Path>
-						</manifestEntries>
 					</archive>
 				</configuration>
 			</plugin>
