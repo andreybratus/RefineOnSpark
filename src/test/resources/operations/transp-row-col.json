@@ -1,0 +1,8 @@
+[
+  {
+    "op": "core/transpose-rows-into-columns",
+    "description": "Transpose every 70 cells in column Insegna into separate columns",
+    "columnName": "Insegna",
+    "rowCount": 70
+  }
+]

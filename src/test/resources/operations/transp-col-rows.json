@@ -1,0 +1,12 @@
+[
+  {
+    "op": "core/transpose-columns-into-rows",
+    "description": "Transpose cells in 2 column(s) starting with Frazione into rows in two new columns named key and value",
+    "startColumnName": "Frazione",
+    "columnCount": 2,
+    "ignoreBlankCells": true,
+    "fillDown": false,
+    "keyColumnName": "key",
+    "valueColumnName": "value"
+  }
+]

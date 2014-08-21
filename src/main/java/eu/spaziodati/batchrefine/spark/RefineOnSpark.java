@@ -16,6 +16,7 @@ import org.apache.spark.broadcast.Broadcast;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 
+import eu.spaziodati.batchrefine.spark.client.RemoteInterface;
 import eu.spaziodati.batchrefine.spark.utils.DriverCLIOptions;
 import eu.spaziodati.batchrefine.spark.utils.StringAccumulatorParam;
 
@@ -31,9 +32,27 @@ public class RefineOnSpark implements RemoteInterface {
 
 	private static JavaSparkContext sparkContext;
 	public static RemoteInterface stub;
-	private static RefineOnSpark obj;
+	private static RefineOnSpark remoteObj;
+
+	/**
+	 * Default constructor initializes local SparkContext with default
+	 * configuration, all jobs would be scheduled sequentially on a single
+	 * executor locally.
+	 */
 
 	public RefineOnSpark() {
+		SparkConf conf = new SparkConf(true);
+		conf.setMaster("local")
+				.setAppName("RefineOnSpark_local")
+				.set("spark.hadoop.fs.local.block.size",
+						new Long(16 * 1024 * 1024).toString());
+		sparkContext = new JavaSparkContext(conf);
+	}
+
+	public RefineOnSpark(SparkConf conf) {
+		sparkContext = new JavaSparkContext(conf);
+		System.out.println("SparkContext initialized, connected to master: "
+				+ sparkContext.master());
 	};
 
 	/**
@@ -60,20 +79,15 @@ public class RefineOnSpark implements RemoteInterface {
 				System.exit(-1);
 			}
 
-			sparkContext = new JavaSparkContext(configureSpark(cLineOptions));
+			remoteObj = new RefineOnSpark(configureSpark(cLineOptions));
 
-			System.out
-					.println("SparkContext initialized, connected to master: "
-							+ args[0]);
-			System.out.println("Waiting for connections");
-
-			obj = new RefineOnSpark();
-			stub = (RemoteInterface) UnicastRemoteObject.exportObject(obj, 0);
+			stub = (RemoteInterface) UnicastRemoteObject.exportObject(
+					remoteObj, 0);
 
 			while (true) {
 				try {
 					stubServer = new ServerSocket(3377);
-
+					System.out.println("Waiting for connections");
 					Socket connection = stubServer.accept();
 
 					System.err.println("Connection accepted! From: "
@@ -110,7 +124,10 @@ public class RefineOnSpark implements RemoteInterface {
 	 * Function called using RMI through {@link RemoteInterface} which submits a
 	 * job to {@code sparkContext} and returns the processing time
 	 * 
-	 * @return processing time
+	 * @param options
+	 *            String[]: [0] - inputFile, [1] - transformFile, [2] -
+	 *            outputFolder, [3] - minimumSplitSize
+	 * @return each partition processing time
 	 */
 
 	public String submitJob(String[] options) throws Exception {
@@ -190,4 +207,8 @@ public class RefineOnSpark implements RemoteInterface {
 		parser.printUsage(System.err);
 	}
 
+	public void close() {
+		if (sparkContext != null)
+			sparkContext.stop();
+	}
 }

@@ -3,6 +3,4 @@ target/
 .classpath
 .project
 .settings/
-*.json
-*.csv
 .cache
